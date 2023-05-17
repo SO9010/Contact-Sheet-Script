@@ -31,6 +31,9 @@
 ; Version 1.3 
 ; Document formatting added. Thumbnails options added. Captions option added
 ; Moved to under create
+;
+; Version 1.4
+; Custom sizing added. Auto-rotation added. 
 
 
 (define (script-fu-contactsheet dir sheet-size
