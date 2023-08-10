@@ -27,36 +27,33 @@
 
 #include <libgimp/gimp.h>
 #include <libgimp/gimpui.h>
+#include <gexiv2/gexiv2.h>
 
 #include "libgimp/stdplugins-intl.h"
 
 
-#define PLUG_IN_PROC        "plug-in-contact-sheet"
-#define PLUG_IN_BINARY      "contact-sheet"
-#define PLUG_IN_ROLE        "gimp-contact-sheet"
+#define PLUG_IN_PROC        "plug-in-contactsheet"
+#define PLUG_IN_BINARY      "contactsheet"
+#define PLUG_IN_ROLE        "gimp-contactsheet"
 
 #define FONT_LEN            256
 
 /**
  * @brief Stores crucial sheet data
 */
+/* A column is how many you want width wise
+   A row is how many tou want lengths wise */
+/* Assume contact sheet is one word*/
 typedef struct
 {
-  gint     contact_sheet_height;  /* height of the sheet */
-  gint     contact_sheet_width;   /* width of the sheet */
-  gint     columns;   /* width of the sheet */
-  gint     rows;   /* width of the sheet */
-  GimpRGB  background;            /* color of background */
-  GimpRGB  text;                  /* color of captions */
-  gdouble  picture_height;        /* height of picture (r) */
-  gdouble  picture_space;         /* space between pictures (r) */
-  
-  GimpFont *caption_font;          /* font family for numbering */
-  gchar    font_name[FONT_LEN];   /* serializable name of font for numbering */
-  gboolean    captions;              /* bool for if captions are enabled or disabled */
-  gint     number_pos[2];         /* flags where to draw numbers (top/bottom) */
-  gint     keep_height;           /* flag if to keep max. image height */
-  gint     num_images;            /* number of images */
+  gint      sheet_width, sheet_height;  /* Height and width of sheet */
+  gint      gap_vert, gap_horiz;        /* Vertical and horizontal gaps between images */
+  GimpRGB   sheet_color;                /* Color of sheet */
+  gint      columns, rows;              /* Color of sheet */
+  gboolean  rotate_images;              /* Images rotate to horizontal */
+  gchar     file_prefix[NAME_LEN];      /* Prefix for file name to be saved, _number is added to the end*/
+  const gchar     file_dir[NAME_LEN];   /* Directory of images */
+  GSList    *images;                    /* List of the images them self */
 } SheetVals;
 
 /* Data to use for the dialog */
@@ -65,33 +62,33 @@ typedef struct
   GtkWidget     *scales[7];
   GtkTreeModel  *image_list_all;
   GtkTreeModel  *image_list_film;
-} FilmInterface;
+} ContactsheetInterface;
 
 
-typedef struct _ContactSheet ContactSheet;
-typedef struct _ContactSheetClass ContactSheetClass;
+typedef struct _Contactsheet Contactsheet;
+typedef struct _ContactsheetClass ContactsheetClass;
 
-struct _ContactSheet
+struct _Contactsheet
 {
   GimpPlugIn parent_instance;
 };
 
-struct _ContactSheetClass
+struct _ContactsheetClass
 {
   GimpPlugInClass parent_class;
 };
 
 
-#define FILM_TYPE  (film_get_type ())
-#define FILM (obj) (G_TYPE_CHECK_INSTANCE_CAST ((obj), FILM_TYPE, Film))
+#define CONTACTSHEET_TYPE  (contactsheet_get_type ())
+#define CONTACTSHEET (obj) (G_TYPE_CHECK_INSTANCE_CAST ((obj), CONTACTSHEET_TYPE, Contactsheet))
 
-GType                   film_get_type         (void) G_GNUC_CONST;
+GType                   contactsheet_get_type         (void) G_GNUC_CONST;
 
-static GList          * film_query_procedures (GimpPlugIn           *plug_in);
-static GimpProcedure  * film_create_procedure (GimpPlugIn           *plug_in,
+static GList          * contactsheet_query_procedures (GimpPlugIn           *plug_in);
+static GimpProcedure  * contactsheet_create_procedure (GimpPlugIn           *plug_in,
                                                const gchar          *name);
 
-static GimpValueArray * film_run              (GimpProcedure        *procedure,
+static GimpValueArray * contactsheet_run              (GimpProcedure        *procedure,
                                                GimpRunMode           run_mode,
                                                GimpImage            *image,
                                                gint                  n_drawables,
@@ -99,16 +96,22 @@ static GimpValueArray * film_run              (GimpProcedure        *procedure,
                                                const GimpValueArray *args,
                                                gpointer              run_data);
 
-static GimpImage      * create_new_image      (guint                 width,
-                                               guint                 height,
-                                               GimpImageType         gdtype,
-                                               GimpLayer           **layer);
+static GimpImage      * create_new_image      (const gchar    *filename,
+                                               guint           file_num,
+                                               guint           width,
+                                               guint           height,
+                                               gint32         *layer_ID);
 
-static gchar          * compose_image_name    (GimpImage            *image);
+static gboolean  is_image_file                (const gchar   *filename);
 
-static GimpImage      * film                  (void);
+static gint32    add_image                    (const gchar    *file,
+                                               guint32        *image_ID_dst,
+                                               guint32        *layer_ID,
+                                               gint            dst_width, 
+                                               gint            dst_height);
 
-static gboolean         check_filmvals        (void);
+
+static gboolean         check_sheetvals       (void);
 
 static void             draw_number           (GimpLayer            *layer,
                                                gint                  num,
@@ -116,89 +119,61 @@ static void             draw_number           (GimpLayer            *layer,
                                                gint                  y,
                                                gint                  height);
 
-static gboolean        film_dialog            (GimpImage            *image);
-static void            film_reset_callback    (GtkWidget            *widget,
+static gboolean        contactsheet_dialog            (GimpImage            *image);
+static void            contactsheet_reset_callback    (GtkWidget            *widget,
                                                gpointer              data);
-static void         film_font_select_callback (GimpFontSelectButton *button,
+static void         contactsheet_font_select_callback (GimpFontSelectButton *button,
                                                GimpResource         *font,
                                                gboolean              closing,
                                                gpointer              data);
 
-static void    film_scale_entry_update_double (GimpLabelSpin        *entry,
+static void    contactsheet_scale_entry_update_double (GimpLabelSpin        *entry,
                                                gdouble              *value);
 
-static void    film_load_settings             (void);
-static void    film_save_settings             (void);
+static void    contactsheet_load_settings             (void);
+static void    contactsheet_save_settings             (void);
 
-G_DEFINE_TYPE (Film, film, GIMP_TYPE_PLUG_IN)
+G_DEFINE_TYPE (Contactsheet, contactsheet, GIMP_TYPE_PLUG_IN)
 
-GIMP_MAIN (FILM_TYPE)
+GIMP_MAIN (CONTACTSHEET_TYPE)
 DEFINE_STD_SET_I18N
-
-
-static gdouble advanced_defaults[] =
-{
-  0.695,           /* Picture height */
-  0.040,           /* Picture spacing */
-  0.058,           /* Hole offset to edge of film */
-  0.052,           /* Hole width */
-  0.081,           /* Hole height */
-  0.081,           /* Hole distance */
-  0.052            /* Image number height */
-};
 
 static SheetVals sheetVals =
 {
-  256,             /* Height of film */
-  { 0.0, 0.0, 0.0, 1.0 }, /* Color of film */
-  0.695,           /* Picture height */
-  0.040,           /* Picture spacing */
-  0.058,           /* Hole offset to edge of film */
-  0.052,           /* Hole width */
-  0.081,           /* Hole height */
-  0.081,           /* Hole distance */
-  0.052,           /* Image number height */
-  1,               /* Start index of numbering */
-  { 0.93, 0.61, 0.0, 1.0 }, /* Color of number */
-  NULL,            /* !!! No default, must be set later. */
-  "Monospace",     /* Case sensitive, must be name of an installed font. */
-  { TRUE, TRUE },  /* Numbering on top and bottom */
-  0,               /* Don't keep max. image height */
-  0,               /* Number of images */
-  { 0 }            /* Input image list */
+  1920, 1080,             /* Width and height of sheet */
+  4, 4,                   /* Vertical and horizontal gaps between images */
+  { 1.0, 1.0, 1.0, 1.0 }, /* Color of sheet */
+  5, 4,                   /* Color of sheet */
+  TRUE,                   /* Images rotate to horizontal */
+  "Untitled",             /* File prefix */
+  "~/Pictures",           /* Image directory */
+  NULL                    /* List of images*/
 };
 
-static FilmInterface filmint =
-{
-  { NULL },   /* advanced adjustments */
-  NULL, NULL  /* image list widgets */
-};    
-
-
 static void
-film_class_init (FilmClass *klass)
+contactsheet_class_init (ContactsheetClass *klass)
 {
   GimpPlugInClass *plug_in_class = GIMP_PLUG_IN_CLASS (klass);
 
-  plug_in_class->query_procedures = film_query_procedures;
-  plug_in_class->create_procedure = film_create_procedure;
+  plug_in_class->query_procedures = contactsheet_query_procedures;
+  plug_in_class->create_procedure = contactsheet_create_procedure;
   plug_in_class->set_i18n         = STD_SET_I18N;
 }
 
 static void
-film_init (Film *film)
+contactsheet_init (Contactsheet *contactsheet)
 {
 }
 
 static GList *
-film_query_procedures (GimpPlugIn *plug_in)
+contactsheet_query_procedures (GimpPlugIn *plug_in)
 {
   return g_list_append (NULL, g_strdup (PLUG_IN_PROC));
 }
 
 static GimpProcedure *
-film_create_procedure (GimpPlugIn  *plug_in,
-                       const gchar *name)
+contactsheet_create_procedure (GimpPlugIn  *plug_in,
+                               const gchar *name)
 {
   GimpProcedure *procedure = NULL;
 
@@ -215,10 +190,10 @@ film_create_procedure (GimpPlugIn  *plug_in,
                                            GIMP_PROCEDURE_SENSITIVE_NO_DRAWABLES);
 
       gimp_procedure_set_menu_label (procedure, _("_Contact sheet..."));
-      gimp_procedure_add_menu_path (procedure, "<Image>/Filters/Combine");
+      gimp_procedure_add_menu_path (procedure, "<Image>/File/Create");
 
       gimp_procedure_set_documentation (procedure,
-                                        _("Combine images in a directory on to a"
+                                        _("Combines images in a directory on to a"
                                           "contact sheet"),
                                         "Compose images from a directory to a contact sheet",
                                         name);
@@ -227,22 +202,46 @@ film_create_procedure (GimpPlugIn  *plug_in,
                                       "Samuel Oldham (so9010sami@gmail.com)",
                                       "2023");
 
-      GIMP_PROC_ARG_INT (procedure, "film-height",
-                         "Film height",
-                         "Height of film (0: fit to images)",
+      GIMP_PROC_ARG_INT (procedure, "sheet-width",
+                         "Sheet height",
+                         "Width of sheet",
+                         1, GIMP_MAX_IMAGE_SIZE, 0,
+                         G_PARAM_READWRITE);
+
+      GIMP_PROC_ARG_INT (procedure, "sheet-height",
+                         "Sheet height",
+                         "Height of sheet",
+                         1, GIMP_MAX_IMAGE_SIZE, 0,
+                         G_PARAM_READWRITE);
+
+      GIMP_PROC_ARG_INT (procedure, "gap-vert",
+                         "Gap vert",
+                         "Vertical gap between images",
                          0, GIMP_MAX_IMAGE_SIZE, 0,
                          G_PARAM_READWRITE);
 
-      GIMP_PROC_ARG_RGB (procedure, "film-color",
-                         "Film color",
-                         "Color of the film",
+      GIMP_PROC_ARG_INT (procedure, "gap-horiz",
+                         "Gap horiz",
+                         "Horizontal gap between images",
+                         0, GIMP_MAX_IMAGE_SIZE, 0,
+                         G_PARAM_READWRITE);
+
+      GIMP_PROC_ARG_RGB (procedure, "sheet-color",
+                         "Sheet color",
+                         "Color of the sheet",
                          TRUE, NULL,
                          G_PARAM_READWRITE);
 
-      GIMP_PROC_ARG_INT (procedure, "number-start",
-                         "Number start",
-                         "Start index for numbering",
-                         G_MININT, G_MAXINT, 1,
+      GIMP_PROC_ARG_INT (procedure, "sheet-columns",
+                         "Sheet columns",
+                         "Number of columns on sheet",
+                         1, GIMP_MAX_IMAGE_SIZE, 0,
+                         G_PARAM_READWRITE);
+
+      GIMP_PROC_ARG_INT (procedure, "sheet-rows",
+                         "Sheet rows",
+                         "Number of rows on sheet",
+                         1, GIMP_MAX_IMAGE_SIZE, 0,
                          G_PARAM_READWRITE);
 
       GIMP_PROC_ARG_FONT (procedure, "number-font",
