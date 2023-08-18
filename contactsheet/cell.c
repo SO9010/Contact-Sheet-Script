@@ -3,6 +3,7 @@
 
 #include <libgimp/gimp.h>
 #include <libgimp/gimpui.h>
+#include <gexiv2/gexiv2.h>
 
 #define PLUG_IN_PROC       "plug-in-contact-sheet"
 #define PLUG_IN_BINARY     "contact-sheet"
@@ -426,9 +427,31 @@ add_caption (const gchar    *file_name,
             guint32 *layer_ID,
             gint     dst_width)
 {  
-  GimpMetadata   *metadata;
+  // Put this into a glist?
+  GExiv2Metadata *metadata;
+  const gchar *caption = "";
+  gdouble f_number;
+  gdouble focal_length;
+  gint    iso_speed;
+  gint exposure_time_nom, exposure_time_dom;
+
+  metadata = gexiv2_metadata_new();
+  
+  f_number = gexiv2_metadata_try_get_fnumber (metadata, NULL);
+  focal_length = gexiv2_metadata_try_get_focal_length (metadata, NULL);
+  iso_speed = gexiv2_metadata_try_get_iso_speed (metadata, NULL);
+  
+  gexiv2_metadata_try_get_exposure_time (metadata,
+                                       exposure_time_nom,
+                                       exposure_time_dom,
+                                       NULL);
+
+  gexiv2_metadata_open_path (metadata,
+                           file_dir,
+                           NULL);
+  
   *layer_ID = gimp_text_layer_new (*image_ID_dst,
-                     file_name,
+                     g_strdup_printf("%c, appeture: f/%.2g, focal length: %.2gmm, ISO: %d, exposr: %d/%d of a sec.", file_name, f_number, focal_length, iso_speed, exposure_time_nom, exposure_time_dom),
                      sheetvals.fontname,
                      sheetvals.caption_size,
                      GIMP_UNIT_PIXEL);
