@@ -11,8 +11,16 @@
 
 #define NAME_LEN            256
 #define SHEET_RES           300
-// Define how the plugin works
-// All of these will be in doubles as it will be in ppi
+
+typedef struct
+{
+  gboolean file_name;
+  gboolean appeture;
+  gboolean focal_length;
+  gboolean ISO;
+  gboolean exposure;
+} ImageInfo;
+
 typedef struct
 {
   gint            contact_sheet_width;
@@ -37,7 +45,7 @@ static void run   (const gchar      *name,
                    gint             *nreturn_vals,
                    GimpParam       **return_vals);
 
-static gboolean  is_image_file      (const gchar   *filename);
+static gboolean  is_image_file      (GFile *file);
 
 static gint32    add_image          (const gchar    *file,
                                      guint32        *image_ID_dst,
@@ -81,6 +89,15 @@ static SheetVals sheetvals =
   TRUE,
   "Sans-serif",
   16
+};
+
+static ImageInfo imageinfo =
+{
+  TRUE,
+  TRUE,
+  TRUE,
+  TRUE,
+  TRUE
 };
 
 MAIN()
@@ -237,8 +254,6 @@ run (const gchar      *name,
 
       filename = g_dir_read_name (files);
 
-      gchar* filed = g_strdup(sheetvals.file_dir);
-
       gint offset_x = sheetvals.gap_vert;
       gint offset_y = sheetvals.gap_horiz;
 
@@ -247,9 +262,10 @@ run (const gchar      *name,
 
       while (filename != NULL) 
       {
-        strcat(filed, "/");
-        strcat(filed, filename);
-        if (is_image_file(filed)) 
+        gchar* filed = g_build_filename(sheetvals.file_dir, filename, NULL);
+        GFile *file = g_file_new_for_path(filed);
+
+        if (is_image_file(file)) 
         {
           gint32 added_caption;
           gint32 added_image;
@@ -274,7 +290,7 @@ run (const gchar      *name,
           }
           else
           {
-            gint32 added_image = add_image (filed,
+            added_image = add_image (filed,
                       &image_ID_dst,
                       &layer_ID_dst,
                       cell_width,
@@ -335,24 +351,24 @@ run (const gchar      *name,
 // Get image, set layer ID returns the image_ID
 
 static gboolean
-is_image_file(const gchar   *filename) // fix me!!
+is_image_file(GFile *file)
 {
-  GError        *error;
-  const gchar   *content_type;
-  gboolean       is_image;
+  GFileInfo *file_info = g_file_query_info(file, G_FILE_ATTRIBUTE_STANDARD_CONTENT_TYPE, G_FILE_QUERY_INFO_NONE, NULL, NULL);
 
-  error = NULL;
-  content_type = g_content_type_guess(filename, NULL, 0, &error);
+  if (file_info != NULL)
+  {
+      const gchar *content_type = g_file_info_get_content_type(file_info);
 
-  if (error != NULL) {
-    g_error_free(error);
-    return FALSE;
+      // Check if the content type is an image type
+      if (g_content_type_is_a(content_type, "image/*"))
+      {
+          // Process the image file
+          return TRUE;
+      }
+
+      g_object_unref(file_info);
   }
-
-  is_image = g_content_type_is_a(content_type, "image/*");
-  g_free((gpointer)content_type);
-
-  return is_image;
+  return FALSE;
 }
 
 // Loads and adds an image as a layer, scaled proportionaltly to what is needed, it will also handle rotating the image and moving it so it can then be moved into the correct position later
@@ -420,6 +436,7 @@ gexiv2 Reference Manual: gexiv2 Reference Manual
 gexiv2 Reference Manual for GExiv2 0.14.2. The latest version of this documentation can be found online at https://gnome.pages.gitlab.gnome.org/gexiv2/docs . GExiv2 image metadata handling library
 Samuel Oldham: this is true both in the 2.0 and 3.0 API. :-)*/
 
+
 static gint32
 add_caption (const gchar    *file_name,
             const gchar    *file_dir,
@@ -437,30 +454,61 @@ add_caption (const gchar    *file_name,
 
   metadata = gexiv2_metadata_new();
   
+  gexiv2_metadata_open_path (metadata,
+                           file_dir,
+                           NULL);
+  
   f_number = gexiv2_metadata_try_get_fnumber (metadata, NULL);
   focal_length = gexiv2_metadata_try_get_focal_length (metadata, NULL);
   iso_speed = gexiv2_metadata_try_get_iso_speed (metadata, NULL);
   
   gexiv2_metadata_try_get_exposure_time (metadata,
-                                       exposure_time_nom,
-                                       exposure_time_dom,
+                                       &exposure_time_nom,
+                                       &exposure_time_dom,
                                        NULL);
 
-  gexiv2_metadata_open_path (metadata,
-                           file_dir,
-                           NULL);
-  
+  char captionBuffer[256];  // Adjust the buffer size as needed
+  if (imageinfo.file_name) {
+    snprintf(captionBuffer, sizeof(captionBuffer), "%s - ", file_name);
+  }
+  if (f_number >= 0 && imageinfo.appeture) {
+      snprintf(captionBuffer + strlen(captionBuffer), sizeof(captionBuffer) - strlen(captionBuffer),
+                "f/%.2g, ", f_number);
+  }
+  if (focal_length > 1 && imageinfo.focal_length) {
+      snprintf(captionBuffer + strlen(captionBuffer), sizeof(captionBuffer) - strlen(captionBuffer),
+                "%.2gmm, ", focal_length);
+  }
+  if (iso_speed > 1 && imageinfo.ISO) {
+      snprintf(captionBuffer + strlen(captionBuffer), sizeof(captionBuffer) - strlen(captionBuffer),
+                "%d, ", iso_speed);
+  }
+  if (exposure_time_nom > 0 && exposure_time_dom > 0 && imageinfo.exposure) {
+      snprintf(captionBuffer + strlen(captionBuffer), sizeof(captionBuffer) - strlen(captionBuffer),
+                "%d/%ds, ", exposure_time_nom, exposure_time_dom);
+  }
+
+  // Remove the trailing comma and space
+  size_t captionLength = strlen(captionBuffer);
+  if (captionLength >= 2) {
+      captionBuffer[captionLength - 2] = '\0';
+  }
+
+  // Set the caption
+  caption = g_strdup(captionBuffer);
+
+
   *layer_ID = gimp_text_layer_new (*image_ID_dst,
-                     g_strdup_printf("%c, appeture: f/%.2g, focal length: %.2gmm, ISO: %d, exposr: %d/%d of a sec.", file_name, f_number, focal_length, iso_speed, exposure_time_nom, exposure_time_dom),
+                     caption,
                      sheetvals.fontname,
                      sheetvals.caption_size,
                      GIMP_UNIT_PIXEL);
- 
+
   gimp_image_insert_layer (*image_ID_dst,
                           *layer_ID,
                           0,
                           -1);
-  
+
   gimp_text_layer_resize (*layer_ID,
                           dst_width,
                           gimp_drawable_height(*layer_ID)
@@ -504,10 +552,10 @@ create_new_image (const gchar    *filename,
 }
 
 
-// GUI, cahnge the way this is done in order to have it do it in real time, so then you can reuse the widghets
+// GUI, cahnge the way this is done in order to have it do it in real time, so then you can reuse the widghets, also make it so it isd in multiple functions
 
 static gboolean
-contact_sheet_dialog (gint32 image_ID)
+contact_sheet_dialog (gint32 image_ID)  
 {
   GtkWidget       *dlg;
   GtkWidget       *main_vbox;
@@ -699,6 +747,50 @@ contact_sheet_dialog (gint32 image_ID)
 
   gtk_box_pack_start (GTK_BOX (hbox), caption_check_box, FALSE, FALSE, 0);
 
+  hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
+  gtk_box_pack_start(GTK_BOX(vbox), hbox, FALSE, FALSE, 0);
+  gtk_widget_show(hbox);
+
+  check_box = gtk_check_button_new_with_mnemonic("File name");
+  gtk_widget_show(check_box);
+  gtk_toggle_button_set_active(check_box, TRUE);
+  gtk_box_pack_start (GTK_BOX (hbox), check_box, FALSE, FALSE, 0);
+  g_signal_connect (check_box, "toggled",
+                    G_CALLBACK (gimp_toggle_button_update),
+                    &imageinfo.file_name);
+
+  check_box = gtk_check_button_new_with_mnemonic("Appeture");
+  gtk_widget_show(check_box);
+  gtk_toggle_button_set_active(check_box, TRUE);
+  gtk_box_pack_start (GTK_BOX (hbox), check_box, FALSE, FALSE, 0);
+  g_signal_connect (check_box, "toggled",
+                    G_CALLBACK (gimp_toggle_button_update),
+                    &imageinfo.appeture);
+
+  check_box = gtk_check_button_new_with_mnemonic("Focal Length");
+  gtk_widget_show(check_box);
+  gtk_toggle_button_set_active(check_box, TRUE);
+  gtk_box_pack_start (GTK_BOX (hbox), check_box, FALSE, FALSE, 0);
+  g_signal_connect (check_box, "toggled",
+                    G_CALLBACK (gimp_toggle_button_update),
+                    &imageinfo.focal_length);
+
+  check_box = gtk_check_button_new_with_mnemonic("ISO");
+  gtk_widget_show(check_box);
+  gtk_toggle_button_set_active(check_box, TRUE);
+  gtk_box_pack_start (GTK_BOX (hbox), check_box, FALSE, FALSE, 0);
+  g_signal_connect (check_box, "toggled",
+                    G_CALLBACK (gimp_toggle_button_update),
+                    &imageinfo.ISO);
+
+  check_box = gtk_check_button_new_with_mnemonic("Exposure");
+  gtk_widget_show(check_box);
+  gtk_toggle_button_set_active(check_box, TRUE);
+  gtk_box_pack_start (GTK_BOX (hbox), check_box, FALSE, FALSE, 0);
+  g_signal_connect (check_box, "toggled",
+                    G_CALLBACK (gimp_toggle_button_update),
+                    &imageinfo.exposure);
+
   /*  Caption text size entry  */
   caption_text_size = gimp_size_entry_new (1,                            /*  number_of_fields  */
                                unit,                         /*  unit              */
@@ -721,15 +813,6 @@ contact_sheet_dialog (gint32 image_ID)
   label = gimp_size_entry_attach_label (GIMP_SIZE_ENTRY (caption_text_size), "Text size :",
         1, 0, 0.0);
 
-  hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
-  gtk_box_pack_start(GTK_BOX(vbox), hbox, FALSE, FALSE, 0);
-  gtk_widget_show(hbox);
-
-  check_box = gtk_check_button_new_with_mnemonic("Title");
-  gtk_widget_show(check_box);
-  gtk_widget_set_sensitive(check_box, FALSE);
-  
-  gtk_box_pack_start (GTK_BOX (hbox), check_box, FALSE, FALSE, 0);
 
   // Flatten image toggle
   hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);

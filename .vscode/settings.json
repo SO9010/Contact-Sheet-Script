@@ -1,6 +1,10 @@
 {
   "files.associations": {
     "string.h": "c",
-    "gimp.h": "c"
+    "gimp.h": "c",
+    "hash_map": "c",
+    "gtk.h": "c",
+    "gexiv2.h": "c",
+    "gimpui.h": "c"
   }
 }
