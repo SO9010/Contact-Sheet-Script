@@ -73,7 +73,8 @@ static void       run                 (const gchar      *name,
 
 static gboolean   is_image_file       (GFile *file);
 
-static gint32     add_image           (guint32        *image_ID_dst,
+static gint32     add_image           (const gchar    *file,
+                                       guint32        *image_ID_dst,
                                        guint32        *layer_ID,
                                        gint            dst_width, 
                                        gint            dst_height);
@@ -261,7 +262,7 @@ run (const gchar      *name,
 
       files = g_dir_open (sheetvals.file_dir, 0, NULL);
 
-      filename = g_dir_read_name (files);
+      imageinfo.filename = g_dir_read_name (files);
 
       gint offset_x = sheetvals.gap_vert;
       gint offset_y = sheetvals.gap_horiz;
@@ -271,7 +272,7 @@ run (const gchar      *name,
 
       while (filename != NULL) 
       {
-        gchar* filed = g_build_filename(sheetvals.file_dir, filename, NULL);
+        gchar* filed = g_build_filename(imageinfo.file_dir_tree, imageinfo.filename, NULL);
         GFile *file = g_file_new_for_path(filed);
 
         if (is_image_file(file)) 
@@ -281,7 +282,7 @@ run (const gchar      *name,
           
           if (sheetvals.captions)
           {
-            added_caption = add_caption (filename,
+            added_caption = add_caption (imageinfo.filename,
                                          filed,
                                          &image_ID_dst,
                                          &layer_ID_dst,
@@ -355,3 +356,193 @@ run (const gchar      *name,
 
   values[0].data.d_status = status;
 }
+
+static gboolean
+is_image_file(GFile *file)
+{
+  GFileInfo *file_info = g_file_query_info(file, G_FILE_ATTRIBUTE_STANDARD_CONTENT_TYPE, G_FILE_QUERY_INFO_NONE, NULL, NULL);
+
+  if (file_info != NULL)
+  {
+      const gchar *content_type = g_file_info_get_content_type(file_info);
+
+      // Check if the content type is an image type
+      if (g_content_type_is_a(content_type, "image/*"))
+      {
+          // Process the image file
+          return TRUE;
+      }
+
+      g_object_unref(file_info);
+  }
+  return FALSE;
+}
+
+// Loads and adds an image as a layer, scaled proportionaltly to what is needed, it will also handle rotating the image and moving it so it can then be moved into the correct position later
+static gint32
+add_image (const gchar    *file,
+           guint32 *image_ID_dst,
+           guint32 *layer_ID,
+           gint     dst_width, 
+           gint     dst_height)
+{
+  gboolean rotated = FALSE;
+  *layer_ID = gimp_file_load_layer (GIMP_RUN_NONINTERACTIVE, *image_ID_dst, file);
+  gimp_image_insert_layer (*image_ID_dst,
+                          *layer_ID,
+                          0,
+                          -1);
+
+  if (sheetvals.rotate_images){
+    if (gimp_drawable_width (*layer_ID) < gimp_drawable_height (*layer_ID)){
+      gimp_item_transform_rotate (*layer_ID,
+                                  -1.5708,
+                                  FALSE,
+                                  0,
+                                  0);
+      rotated = TRUE;
+    }
+  }
+
+  gdouble asepct_ratio = (gdouble)dst_width / gimp_drawable_width (*layer_ID);
+
+  if ((gimp_drawable_height (*layer_ID) * asepct_ratio) > dst_height){
+    asepct_ratio = (gdouble)dst_height / gimp_drawable_height (*layer_ID);
+
+    gimp_layer_scale(*layer_ID,
+                gimp_drawable_width (*layer_ID) * asepct_ratio,
+                gimp_drawable_height (*layer_ID) * asepct_ratio,
+                FALSE);
+  }
+  else
+  {
+
+    gimp_layer_scale(*layer_ID,
+                dst_width,
+                gimp_drawable_height (*layer_ID) * asepct_ratio,
+                FALSE);
+
+  }
+
+  if (rotated){
+      gimp_item_transform_translate (*layer_ID,
+                    0,
+                    gimp_drawable_height (*layer_ID));
+  }
+  gimp_item_transform_translate (*layer_ID,
+              (dst_width - gimp_drawable_width (*layer_ID)) / 2,
+              0);
+  return *layer_ID;
+}
+
+static gint32
+add_caption (const gchar    *file_dir,
+             guint32 *image_ID_dst,
+             guint32 *layer_ID,
+             gint     dst_width)
+{  
+  // Put this into a glist?
+  GExiv2Metadata *metadata;
+  const gchar *caption = "";
+  gdouble f_number;
+  gdouble focal_length;
+  gint    iso_speed;
+  gint exposure_time_nom, exposure_time_dom;
+
+  metadata = gexiv2_metadata_new();
+  
+  gexiv2_metadata_open_path (metadata,
+                           file_dir,
+                           NULL);
+  
+  f_number = gexiv2_metadata_try_get_fnumber (metadata, NULL);
+  focal_length = gexiv2_metadata_try_get_focal_length (metadata, NULL);
+  iso_speed = gexiv2_metadata_try_get_iso_speed (metadata, NULL);
+  
+  gexiv2_metadata_try_get_exposure_time (metadata,
+                                       &exposure_time_nom,
+                                       &exposure_time_dom,
+                                       NULL);
+
+  char captionBuffer[256];  // Adjust the buffer size as needed
+  if (imageinfo.file_name) {
+    snprintf(captionBuffer, sizeof(captionBuffer), "%s - ", imageinfo.filename);
+  }
+  if (f_number >= 0 && imageinfo.appeture) {
+      snprintf(captionBuffer + strlen(captionBuffer), sizeof(captionBuffer) - strlen(captionBuffer),
+                "f/%.2g, ", f_number);
+  }
+  if (focal_length > 1 && imageinfo.focal_length) {
+      snprintf(captionBuffer + strlen(captionBuffer), sizeof(captionBuffer) - strlen(captionBuffer),
+                "%.2gmm, ", focal_length);
+  }
+  if (iso_speed > 1 && imageinfo.ISO) {
+      snprintf(captionBuffer + strlen(captionBuffer), sizeof(captionBuffer) - strlen(captionBuffer),
+                "%d, ", iso_speed);
+  }
+  if (exposure_time_nom > 0 && exposure_time_dom > 0 && imageinfo.exposure) {
+      snprintf(captionBuffer + strlen(captionBuffer), sizeof(captionBuffer) - strlen(captionBuffer),
+                "%d/%ds, ", exposure_time_nom, exposure_time_dom);
+  }
+
+  // Remove the trailing comma and space
+  size_t captionLength = strlen(captionBuffer);
+  if (captionLength >= 2) {
+      captionBuffer[captionLength - 2] = '\0';
+  }
+
+  // Set the caption
+  caption = g_strdup(captionBuffer);
+
+
+  *layer_ID = gimp_text_layer_new (*image_ID_dst,
+                     caption,
+                     sheetvals.fontname,
+                     sheetvals.caption_size,
+                     GIMP_UNIT_PIXEL);
+
+  gimp_image_insert_layer (*image_ID_dst,
+                          *layer_ID,
+                          0,
+                          -1);
+
+  gimp_text_layer_resize (*layer_ID,
+                          dst_width,
+                          gimp_drawable_height(*layer_ID)
+                         );
+
+  gimp_text_layer_set_justification (*layer_ID,
+                                   GIMP_TEXT_JUSTIFY_CENTER);
+
+  return *layer_ID;
+}
+
+// Create an image, set layer_ID, drawable and rgn, returns the image_ID REWRTIE!!
+static gint32
+create_new_image (guint           file_num,
+                  guint           width,
+                  guint           height,
+                  gint32         *layer_ID)
+{
+  gint32            image_ID;
+  gimp_context_push ();
+  gimp_context_set_background (&sheetvals.sheet_color);
+  image_ID = gimp_image_new (width, height, GIMP_RGB);
+
+
+  gimp_image_set_filename (image_ID, g_strdup_printf("%s_%d", sheetvals.file_prefix, (gchar)file_num));
+
+  gimp_image_undo_disable (image_ID);
+
+  *layer_ID = gimp_layer_new(image_ID, "Background", width, height,
+                             GIMP_RGB,
+                             100,
+                             gimp_image_get_default_new_layer_mode (image_ID));
+
+  gimp_drawable_fill(*layer_ID, GIMP_BACKGROUND_FILL);
+
+  gimp_image_insert_layer (image_ID, *layer_ID, -1, 0);
+  
+  return image_ID;
+}
+
