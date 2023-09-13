@@ -20,6 +20,9 @@
 /*
  * This plug-in generates a contact sheet from a selected directory
  */
+// ADD ABITLIY TO CHANGE DPI 
+// ADD ABILITY TO ADD EDGES
+//fix gegl leaks
 
 #include <libgimp/gimp.h>
 #include <libgimp/gimpui.h>
@@ -30,27 +33,28 @@
 #define PLUG_IN_ROLE        "gimp-contactsheet"
 
 #define NAME_LEN            256
-#define SHEET_RES           300
 
 /* Variables to set in dialog box */
 typedef struct
 {
-  gint            sheet_width;            /* Width of the sheet */
-  gint            sheet_height;           /* Height of the sheet */
-  gint            gap_vert, gap_horiz;    /* Vertical and horizontal gaps between thumbnails */
-  GimpRGB         sheet_color;            /* Background colour of the sheet */
+  gint            sheet_res;              /* Resolution of the sheet */
+  gdouble         sheet_width;            /* Width of the sheet */
+  gdouble         sheet_height;           /* Height of the sheet */
+  GimpUnit        w_h_type;               /* Measure type of the width and height*/
+  gdouble         gap_vert, gap_horiz;    /* Vertical and horizontal gaps between thumbnails */
+  GimpUnit        vg_hg_type;             /* Measure type of the width and height*/
   gint            row, column;            /* Number of rows and columns */
   gboolean        rotate_images;          /* Rotate the thumbnails to horizontal */
   gchar           file_prefix[NAME_LEN];  /* Name of the file to be made */
   gboolean        flatten;                /* Flatten all layers */
-  gboolean        captions;               /* Enable captions */
-  const gchar    *fontname;               /* Sheet font */
-  gint            caption_size;           /* Caption size, initially pt */
+  gchar           fontname[NAME_LEN];               /* Sheet font */
+  gdouble         caption_size;           /* Caption size, initially pt */
+  GimpUnit        cs_type;                /* Caption size measure type */
 
   /* Where the files are */
-  const gchar     file_dir_tree[NAME_LEN];/* Holds the current directory image, with out the image name*/
+  gchar     file_dir_tree[NAME_LEN];/* Holds the current directory image, with out the image name*/
   
-  /* List of boolean values for wheather the user wants them to be displayed */
+  /* List of boolean values for whether the user wants them to be displayed */
   gboolean        file_name;
   gboolean        aperture;
   gboolean        focal_length;
@@ -99,17 +103,19 @@ static gchar *filename = "";               /* Holds the filename*/
 /* Values when first invoked */
 static SheetVals sheetvals =
 {
-  256,            /* Width of the sheet */
-  256,            /* Height of the sheet */
-  4, 4,           /* Vertical and horizontal gaps between thumbnails */
-  {1, 1, 1, 1},   /* Sheet colour */
-  5, 4,           /* Number of rows and columns */
-  TRUE,           /* Rotate the thumbnails to horizontal */
+  300,
+  11.7,            /* Width of the sheet */
+  8.3,            /* Height of the sheet */
+  GIMP_UNIT_INCH,
+  0.014, 0.014,           /* Vertical and horizontal gaps between thumbnails */
+  GIMP_UNIT_INCH,
+  5, 6,           /* Number of rows and columns */
+  FALSE,           /* Rotate the thumbnails to horizontal */
   "Untitled",     /* Name of the file to be made */
   TRUE,           /* Flatten all layers */
-  TRUE,           /* Enable captions */
   "Sans-serif",   /* Sheet font */
-  16,             /* Caption size, initially pt */
+  6,              /* Caption size, initially pt */
+  GIMP_UNIT_POINT,
   
   "~/Pictures",
 
@@ -128,35 +134,37 @@ MAIN()
 static void
 query (void)
 {
-  static GimpParamDef args[] =
+  static const GimpParamDef args[] =
   {
+ 
     { GIMP_PDB_INT32,    "run-mode",     "The run mode { RUN-INTERACTIVE (0), RUN-NONINTERACTIVE (1) }" },
     { GIMP_PDB_IMAGE,    "image",        "Input image (unused)" },
     { GIMP_PDB_DRAWABLE, "drawable",     "Input drawable" },
-    { GIMP_PDB_INT32,    "sheet-height", "Contact sheet height" },
-    { GIMP_PDB_INT32,    "sheet-width",  "Contact sheet Width" },
-    { GIMP_PDB_INT32,    "vertical-gap", "Hertical gaps between images" },
-    { GIMP_PDB_INT32,    "horizontal-gap","Horizontal gaps between images" },
-    { GIMP_PDB_COLOR,    "sheet-color",  "Background colour of the sheet" },
-    { GIMP_PDB_INT32,    "row",          "Number of rows" },
-    { GIMP_PDB_INT32,    "column",       "Number of columns" },
-    { GIMP_PDB_INT32,    "rotate-images","Rotate to horizontal { FALSE (0), TRUE (1) }" },
-    { GIMP_PDB_STRING,   "file_prefix",  "Prefix of the file name" },
-    { GIMP_PDB_INT32,    "flatten",      "Flatten to one layer { FALSE (0), TRUE (1) }" },
-    { GIMP_PDB_INT32,    "enable-captions","Enable captions { FALSE (0), TRUE (1) }" },
-    { GIMP_PDB_STRING,   "fontname",     "Font name for the whole sheet" },
-    { GIMP_PDB_INT32,    "caption-size", "Size of the captions" },
 
-    { GIMP_PDB_STRING,   "file-dir-tree",  "Source Directory for the contact sheet" },
+    { GIMP_PDB_FLOAT,    "sheet-res",     "Resolution of the sheet" },
+    { GIMP_PDB_FLOAT,    "sheet-width",   "Contact sheet Width" },
+    { GIMP_PDB_FLOAT,    "sheet-height",  "Contact sheet height" },
+    { GIMP_PDB_INT32,    "vg-hg-type",    "Data type for width and height, {PIXEL (0), INCH (1), MM (2), POINT (3)}" },
+    { GIMP_PDB_FLOAT,    "gap-vert",      "Vertical gaps between images" },
+    { GIMP_PDB_FLOAT,    "gap-horiz",     "Horizontal gaps between images" },
+    { GIMP_PDB_INT32,    "vg-hg-type",    "Data type for gaps, {PIXEL (0), INCH (1), MM (2), POINT (3)}" },
+    { GIMP_PDB_INT32,    "row",           "Number of rows" },
+    { GIMP_PDB_INT32,    "column",        "Number of columns" },
+    { GIMP_PDB_INT32,    "rotate-images", "Rotate to horizontal { FALSE (0), TRUE (1) }" },
+    { GIMP_PDB_INT32,    "flatten",       "Flatten to one layer { FALSE (0), TRUE (1) }" },
+    { GIMP_PDB_STRING,   "fontname",      "Font name for the whole sheet" },
+    { GIMP_PDB_FLOAT,    "caption-size",  "Size of the captions" },
+    { GIMP_PDB_INT32,    "cs-type",       "Data type for font, {PIXEL (0), INCH (1), MM (2), POINT (3)}" },
 
-    { GIMP_PDB_STRING,   "file-dir",     "Directory tree for the file" },
-    { GIMP_PDB_INT32,    "file-name",    "Show file name { FALSE (0), TRUE (1) }" },
-    { GIMP_PDB_INT32,    "aperture",     "show aperture { FALSE (0), TRUE (1) }" },
-    { GIMP_PDB_INT32,    "focal-length", "Show focal length { FALSE (0), TRUE (1) }" },
-    { GIMP_PDB_INT32,    "ISO",          "Show ISO speed { FALSE (0), TRUE (1) }" },
-    { GIMP_PDB_INT32,    "exposre",      "Show expsoure time { FALSE (0), TRUE (1) }" },
-  };
+    { GIMP_PDB_STRING,   "file-dir-tree", "File directory to the folder containing the files" },
 
+    { GIMP_PDB_INT32,    "file-name",     "Show file name { FALSE (0), TRUE (1) }" },
+    { GIMP_PDB_INT32,    "aperture",      "show aperture { FALSE (0), TRUE (1) }" },
+    { GIMP_PDB_INT32,    "focal-length",  "Show focal length { FALSE (0), TRUE (1) }" },
+    { GIMP_PDB_INT32,    "ISO",           "Show ISO speed { FALSE (0), TRUE (1) }" },
+    { GIMP_PDB_INT32,    "exposure",      "Show exposure time { FALSE (0), TRUE (1) }" },
+  };  
+  
   static const GimpParamDef return_vals[] =
   {
     { GIMP_PDB_IMAGE, "new-image", "Output image" }
@@ -193,16 +201,14 @@ run (const gchar      *name,
   gint              cell_width;
   gint              cell_height;
   GDir             *files;
-    
+  
   GimpRunMode run_mode = param[0].data.d_int32;
 
-  *nreturn_vals = 2;
+  *nreturn_vals = 1;
   *return_vals  = values;
-
   values[0].type          = GIMP_PDB_STATUS;
   values[0].data.d_status = status;
   values[1].type          = GIMP_PDB_IMAGE;
-  values[1].data.d_int32  = -1;
 
   switch (run_mode)
   {
@@ -211,17 +217,18 @@ run (const gchar      *name,
       gimp_get_data (PLUG_IN_PROC, &sheetvals);
 
       /*  First acquire information with a dialog  */
-      if (! contact_sheet_dialog (param[1].data.d_int32)){
-          return;
-        }
-      break;
+      if (! contact_sheet_dialog (param[1].data.d_int32))
+      {
+        return;
+      }
+    break;
     
     case GIMP_RUN_NONINTERACTIVE:
-      status = GIMP_PDB_CALLING_ERROR; // error as we need the input from the user for the dir tree
+      status = GIMP_PDB_CALLING_ERROR;
     break;
 
     case GIMP_RUN_WITH_LAST_VALS:
-    gimp_get_data (PLUG_IN_PROC, &sheetvals);
+      gimp_get_data (PLUG_IN_PROC, &sheetvals);
     break;
 
     default:
@@ -232,16 +239,21 @@ run (const gchar      *name,
     {
       gimp_progress_init ("Composing images");
 
+      const gdouble sheet_width = gimp_units_to_pixels (sheetvals.sheet_width, sheetvals.w_h_type, sheetvals.sheet_res);
+      const gdouble sheet_height = gimp_units_to_pixels (sheetvals.sheet_height, sheetvals.w_h_type, sheetvals.sheet_res);
+      
+      const gdouble gap_vert = gimp_units_to_pixels (sheetvals.gap_vert, sheetvals.vg_hg_type, sheetvals.sheet_res);
+      const gdouble gap_horiz = gimp_units_to_pixels (sheetvals.gap_horiz, sheetvals.vg_hg_type, sheetvals.sheet_res);
       const gint tmp_row = sheetvals.row;
       const gint tmp_col = sheetvals.column;
 
-      cell_height = (sheetvals.sheet_width - (sheetvals.gap_horiz * (tmp_row + 1))) / tmp_row;
-      cell_width = (sheetvals.sheet_height - (sheetvals.gap_vert * (tmp_col + 1))) / tmp_col;
-      
+      cell_width = (sheet_width - (gap_vert * (tmp_col + 1))) / tmp_col;
+      cell_height = (sheet_height - (gap_horiz* (tmp_row + 1))) / tmp_row;
+
       // add to the background.
       gint32            image_ID_src, image_ID_dst, layer_ID_src, layer_ID_dst;
       image_ID_dst = create_new_image (sheet_number,
-                                   (guint) sheetvals.sheet_height, (guint) sheetvals.sheet_width,
+                                   (guint) sheet_width, (guint) sheet_height,
                                    &layer_ID_dst);
 
       // Itterate through directory
@@ -250,8 +262,8 @@ run (const gchar      *name,
 
       filename = g_dir_read_name (files);
 
-      gint offset_x = sheetvals.gap_vert;
-      gint offset_y = sheetvals.gap_horiz;
+      gint offset_x = gap_vert;
+      gint offset_y = gap_horiz;
 
       gint number_x = 0;
       gint number_y = 0;
@@ -266,7 +278,7 @@ run (const gchar      *name,
           gint32 added_caption;
           gint32 added_image;
           
-          if (sheetvals.captions)
+          if (sheetvals.file_name || sheetvals.aperture || sheetvals.focal_length || sheetvals.ISO || sheetvals.exposure)
           {
             added_caption = add_caption (filed,
                                          &image_ID_dst,
@@ -293,15 +305,14 @@ run (const gchar      *name,
           }
 
           gimp_item_transform_translate (added_image,
-                    offset_x,
-                    offset_y);
+                                         offset_x,
+                                         offset_y);
           
-
           number_x++;
-          offset_x += (cell_width + sheetvals.gap_vert);
+          offset_x += (cell_width + gap_vert);
           if (number_x == sheetvals.column){
-            offset_x = sheetvals.gap_vert;
-            offset_y += (cell_height + sheetvals.gap_horiz);
+            offset_x = gap_vert;
+            offset_y += (cell_height + gap_horiz);
             number_x = 0;
             number_y++;
           }
@@ -314,21 +325,28 @@ run (const gchar      *name,
             
             gimp_image_undo_enable (image_ID_dst);
 
-            gimp_display_new (image_ID_dst);
+            if(sheetvals.file_dir_tree[0] != '~' && number_x > 0){
+              gimp_display_new (image_ID_dst);
+              gimp_image_delete(image_ID_dst);
+            }
+            else{
+              g_message("No Images here!\n");
+            }
             sheet_number++;
    
             image_ID_dst = create_new_image (sheet_number,
-                                   (guint) sheetvals.sheet_height, (guint) sheetvals.sheet_width,
+                                   (guint) sheet_width, (guint) sheet_height,
                                    &layer_ID_dst);
 
-            offset_x = sheetvals.gap_vert;
-            offset_y = sheetvals.gap_horiz;
+            offset_x = gap_vert;
+            offset_y = gap_horiz;
             number_x = 0;
             number_y = 0;
           }
         }
         filename = g_dir_read_name (files);
         filed = g_strdup(sheetvals.file_dir_tree);
+        g_object_unref(file);
       }
       if (sheetvals.flatten)
       {
@@ -336,9 +354,19 @@ run (const gchar      *name,
       }
       gimp_image_undo_enable (image_ID_dst);
 
-      gimp_display_new (image_ID_dst);
-    }
+      if(sheetvals.file_dir_tree[0] != '~' && number_x > 0){
+        gimp_display_new (image_ID_dst);
+        gimp_image_delete(image_ID_dst);
+      }
+      else{
+        g_message("No Images here!\n");
+      }
 
+      if (run_mode == GIMP_RUN_INTERACTIVE){
+        gimp_set_data (PLUG_IN_PROC, &sheetvals, sizeof (SheetVals));
+      }
+    }
+    
   values[0].data.d_status = status;
 }
 
@@ -389,14 +417,14 @@ add_image (const gchar    *file,
     }
   }
 
-  gdouble asepct_ratio = (gdouble)dst_width / gimp_drawable_width (*layer_ID);
+  gdouble aspect_ratio = (gdouble)dst_width / gimp_drawable_width (*layer_ID);
 
-  if ((gimp_drawable_height (*layer_ID) * asepct_ratio) > dst_height){
-    asepct_ratio = (gdouble)dst_height / gimp_drawable_height (*layer_ID);
+  if ((gimp_drawable_height (*layer_ID) * aspect_ratio) > dst_height){
+    aspect_ratio = (gdouble)dst_height / gimp_drawable_height (*layer_ID);
 
     gimp_layer_scale(*layer_ID,
-                gimp_drawable_width (*layer_ID) * asepct_ratio,
-                gimp_drawable_height (*layer_ID) * asepct_ratio,
+                gimp_drawable_width (*layer_ID) * aspect_ratio,
+                gimp_drawable_height (*layer_ID) * aspect_ratio,
                 FALSE);
   }
   else
@@ -404,7 +432,7 @@ add_image (const gchar    *file,
 
     gimp_layer_scale(*layer_ID,
                 dst_width,
-                gimp_drawable_height (*layer_ID) * asepct_ratio,
+                gimp_drawable_height (*layer_ID) * aspect_ratio,
                 FALSE);
 
   }
@@ -433,6 +461,8 @@ add_caption (const gchar    *file_dir,
   gint    iso_speed;
   gint exposure_time_nom, exposure_time_dom;
 
+  const gdouble caption_size = gimp_units_to_pixels (sheetvals.caption_size, sheetvals.cs_type, sheetvals.sheet_res);
+
   metadata = gexiv2_metadata_new();
   
   gexiv2_metadata_open_path (metadata,
@@ -443,28 +473,24 @@ add_caption (const gchar    *file_dir,
   focal_length = gexiv2_metadata_try_get_focal_length (metadata, NULL);
   iso_speed = gexiv2_metadata_try_get_iso_speed (metadata, NULL);
   
-  gexiv2_metadata_try_get_exposure_time (metadata,
-                                       &exposure_time_nom,
-                                       &exposure_time_dom,
-                                       NULL);
-
+  
   char captionBuffer[256];  // Adjust the buffer size as needed
   if (sheetvals.file_name) {
     snprintf(captionBuffer, sizeof(captionBuffer), "%s - ", filename);
   }
-  if (f_number >= 0 && sheetvals.aperture) {
+  if (f_number != -1 && sheetvals.aperture) {
       snprintf(captionBuffer + strlen(captionBuffer), sizeof(captionBuffer) - strlen(captionBuffer),
                 "f/%.2g, ", f_number);
   }
-  if (focal_length > 1 && sheetvals.focal_length) {
+  if (focal_length != -1 && sheetvals.focal_length) {
       snprintf(captionBuffer + strlen(captionBuffer), sizeof(captionBuffer) - strlen(captionBuffer),
                 "%.2gmm, ", focal_length);
   }
-  if (iso_speed > 1 && sheetvals.ISO) {
+  if (iso_speed != 0 && sheetvals.ISO) {
       snprintf(captionBuffer + strlen(captionBuffer), sizeof(captionBuffer) - strlen(captionBuffer),
-                "%d, ", iso_speed);
+                "%dISO, ", iso_speed);
   }
-  if (exposure_time_nom > 0 && exposure_time_dom > 0 && sheetvals.exposure) {
+  if (gexiv2_metadata_try_get_exposure_time (metadata, &exposure_time_nom, &exposure_time_dom, NULL)  && sheetvals.exposure ) {
       snprintf(captionBuffer + strlen(captionBuffer), sizeof(captionBuffer) - strlen(captionBuffer),
                 "%d/%ds, ", exposure_time_nom, exposure_time_dom);
   }
@@ -482,7 +508,7 @@ add_caption (const gchar    *file_dir,
   *layer_ID = gimp_text_layer_new (*image_ID_dst,
                      caption,
                      sheetvals.fontname,
-                     sheetvals.caption_size,
+                     caption_size,
                      GIMP_UNIT_PIXEL);
 
   gimp_image_insert_layer (*image_ID_dst,
@@ -497,7 +523,8 @@ add_caption (const gchar    *file_dir,
 
   gimp_text_layer_set_justification (*layer_ID,
                                    GIMP_TEXT_JUSTIFY_CENTER);
-
+  g_free (caption);
+  g_object_unref (metadata);
   return *layer_ID;
 }
 
@@ -524,7 +551,7 @@ create_new_image (guint           file_num,
                              100,
                              gimp_image_get_default_new_layer_mode (image_ID));
 
-  gimp_drawable_fill(*layer_ID, GIMP_BACKGROUND_FILL);
+  gimp_drawable_fill(*layer_ID, GIMP_FILL_BACKGROUND);
 
   gimp_image_insert_layer (image_ID, *layer_ID, -1, 0);
   
@@ -544,11 +571,13 @@ contact_sheet_dialog (gint32 image_ID)
   GtkWidget       *button;
   GtkWidget       *label;
   GtkWidget       *caption_text_size;
+  GtkWidget       *sheet_res;
   GtkWidget       *file_entry;
   GtkWidget       *prefix;
   GtkWidget       *grid;
   GtkWidget       *caption_check_box;
   GtkWidget       *check_box;
+  GtkWidget       *font_button;
   gboolean         run;
   GimpUnit         unit;
   GtkWidget       *width;
@@ -589,7 +618,9 @@ contact_sheet_dialog (gint32 image_ID)
   // File entry change to dir entry
   file_entry = gtk_file_chooser_widget_new(GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER);
   gtk_widget_set_size_request(file_entry, 600, 200);
-
+  if(sheetvals.file_dir_tree[0] != '~'){
+    gtk_file_chooser_set_current_folder(file_entry, sheetvals.file_dir_tree);
+  }
   gtk_box_pack_start (GTK_BOX (vbox), file_entry, FALSE, FALSE, 0);
   gtk_widget_show (file_entry);
 
@@ -610,17 +641,17 @@ contact_sheet_dialog (gint32 image_ID)
   gtk_box_pack_start (GTK_BOX (hbox), width, FALSE, FALSE, 0);
   gtk_widget_show (width);
 
-  gimp_size_entry_set_unit (GIMP_SIZE_ENTRY (width), GIMP_UNIT_INCH);
+  gimp_size_entry_set_unit (GIMP_SIZE_ENTRY (width), sheetvals.w_h_type);
 
-  gimp_size_entry_set_resolution (GIMP_SIZE_ENTRY (width), 0, SHEET_RES, TRUE);
-  gimp_size_entry_set_resolution (GIMP_SIZE_ENTRY (width), 1, SHEET_RES, TRUE);
+  gimp_size_entry_set_resolution (GIMP_SIZE_ENTRY (width), 0, sheetvals.sheet_res, TRUE);
+  gimp_size_entry_set_resolution (GIMP_SIZE_ENTRY (width), 1, sheetvals.sheet_res, TRUE);
 
-  gimp_size_entry_set_value (GIMP_SIZE_ENTRY (width), 0, 8.3);
-  gimp_size_entry_set_value (GIMP_SIZE_ENTRY (width), 1, 11.7);
+  gimp_size_entry_set_value (GIMP_SIZE_ENTRY (width), 0, sheetvals.sheet_width);
+  gimp_size_entry_set_value (GIMP_SIZE_ENTRY (width), 1, sheetvals.sheet_height);
 
-  gimp_size_entry_attach_label (GIMP_SIZE_ENTRY (width), "Height",
-                                0, 1, 0.0);
   gimp_size_entry_attach_label (GIMP_SIZE_ENTRY (width), "Width",
+                                0, 1, 0.0);
+  gimp_size_entry_attach_label (GIMP_SIZE_ENTRY (width), "Height",
                                 0, 2, 0.0);
 
   label = gimp_size_entry_attach_label (GIMP_SIZE_ENTRY (width), "Size:",
@@ -639,13 +670,13 @@ contact_sheet_dialog (gint32 image_ID)
   gtk_box_pack_start (GTK_BOX (hbox), gap, FALSE, FALSE, 0);
   gtk_widget_show (gap);
 
-  gimp_size_entry_set_unit (GIMP_SIZE_ENTRY (gap), GIMP_UNIT_INCH);
+  gimp_size_entry_set_unit (GIMP_SIZE_ENTRY (gap), sheetvals.vg_hg_type);
 
-  gimp_size_entry_set_resolution (GIMP_SIZE_ENTRY (gap), 0, SHEET_RES, TRUE);
-  gimp_size_entry_set_resolution (GIMP_SIZE_ENTRY (gap), 1, SHEET_RES, TRUE);
+  gimp_size_entry_set_resolution (GIMP_SIZE_ENTRY (gap), 0, sheetvals.sheet_res, TRUE);
+  gimp_size_entry_set_resolution (GIMP_SIZE_ENTRY (gap), 1, sheetvals.sheet_res, TRUE);
 
-  gimp_size_entry_set_value (GIMP_SIZE_ENTRY (gap), 0, 0.014);
-  gimp_size_entry_set_value (GIMP_SIZE_ENTRY (gap), 1, 0.014);
+  gimp_size_entry_set_value (GIMP_SIZE_ENTRY (gap), 0, sheetvals.gap_vert);
+  gimp_size_entry_set_value (GIMP_SIZE_ENTRY (gap), 1, sheetvals.gap_horiz);
 
   gimp_size_entry_attach_label (GIMP_SIZE_ENTRY (gap), "Vertical",
                                 0, 1, 0.0);
@@ -653,38 +684,20 @@ contact_sheet_dialog (gint32 image_ID)
                                 0, 2, 0.0);
   label = gimp_size_entry_attach_label (GIMP_SIZE_ENTRY (gap), "Gaps :",
         1, 0, 0.0);
-        
-  /* sheet color */
+
   hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
   gtk_box_pack_start(GTK_BOX(vbox), hbox, FALSE, FALSE, 0);
   gtk_widget_show(hbox);
 
-  label = gtk_label_new("Sheet color:");
-  button = gimp_color_button_new ("Select Sheet Color",
-                                  50, 20,
-                                  &sheetvals.sheet_color,
-                                  GIMP_COLOR_AREA_FLAT);
-  gtk_box_pack_start (GTK_BOX (hbox), label, FALSE, FALSE, 0);
-  gtk_box_pack_start (GTK_BOX (hbox), button, FALSE, FALSE, 0);
-  gtk_widget_show (label);
-  gtk_widget_show (button);
-
-  gimp_color_button_set_color (GIMP_COLOR_BUTTON (button), &(GimpRGB){1.0, 1.0, 1.0, 1.0});
-  sheetvals.sheet_color = (GimpRGB){1.0, 1.0, 1.0, 1.0};
-
-  g_signal_connect (button, "color-changed",
-                    G_CALLBACK (gimp_color_button_get_color),
-                    &sheetvals.sheet_color);
-
   // Rows and columns
-  row_column = gimp_size_entry_new (2,                            /*  number_of_fields  */
-                               unit,                         /*  unit              */
-                               "%a",                         /*  unit_format       */
-                               TRUE,                         /*  menu_show_pixels  */
+  row_column = gimp_size_entry_new (2,                        /*  number_of_fields  */
+                               unit,                          /*  unit              */
+                               "%a",                          /*  unit_format       */
+                               TRUE,                          /*  menu_show_pixels  */
                                FALSE,                         /*  menu_show_percent */
-                               FALSE,                        /*  show_refval       */
-                               8,            /*  spinbutton_usize  */
-                               GIMP_SIZE_ENTRY_UPDATE_SIZE); /*  update_policy     */
+                               FALSE,                         /*  show_refval       */
+                               8,                             /*  spinbutton_usize  */
+                               GIMP_SIZE_ENTRY_UPDATE_SIZE);  /*  update_policy     */
 
   gtk_box_pack_start (GTK_BOX (hbox), row_column, FALSE, FALSE, 0);
   gtk_widget_show (row_column);
@@ -692,8 +705,8 @@ contact_sheet_dialog (gint32 image_ID)
   gimp_size_entry_set_unit (GIMP_SIZE_ENTRY (row_column), GIMP_UNIT_PIXEL);
   gimp_size_entry_show_unit_menu (GIMP_SIZE_ENTRY (row_column), FALSE);
 
-  gimp_size_entry_set_value (GIMP_SIZE_ENTRY (row_column), 0, 6);
-  gimp_size_entry_set_value (GIMP_SIZE_ENTRY (row_column), 1, 5);
+  gimp_size_entry_set_value (GIMP_SIZE_ENTRY (row_column), 0, sheetvals.column);
+  gimp_size_entry_set_value (GIMP_SIZE_ENTRY (row_column), 1, sheetvals.row);
 
   gimp_size_entry_attach_label (GIMP_SIZE_ENTRY (row_column), "Columns",
                                 0, 1, 0.0);
@@ -703,28 +716,12 @@ contact_sheet_dialog (gint32 image_ID)
   // Auto rotate
   check_box = gtk_check_button_new_with_mnemonic("Rotate to fit");
   gtk_widget_show(check_box);
-
+  gtk_toggle_button_set_active(check_box, sheetvals.rotate_images);
   gtk_box_pack_start (GTK_BOX (hbox), check_box, FALSE, FALSE, 0);
 
   g_signal_connect (check_box, "toggled",
                     G_CALLBACK (gimp_toggle_button_update),
                     &sheetvals.rotate_images);
-
-  // Caption options toggle
-  hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
-  gtk_box_pack_start(GTK_BOX(vbox), hbox, FALSE, FALSE, 0);
-  gtk_widget_show(hbox);
-
-  caption_check_box = gtk_check_button_new_with_mnemonic("Captions");
-  gtk_widget_show(caption_check_box);
-  
-  gtk_toggle_button_set_active(caption_check_box, TRUE);
-  
-  g_signal_connect (caption_check_box, "toggled",
-                    G_CALLBACK (gimp_toggle_button_update),
-                    &sheetvals.captions);
-
-  gtk_box_pack_start (GTK_BOX (hbox), caption_check_box, FALSE, FALSE, 0);
 
   hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
   gtk_box_pack_start(GTK_BOX(vbox), hbox, FALSE, FALSE, 0);
@@ -732,7 +729,7 @@ contact_sheet_dialog (gint32 image_ID)
 
   check_box = gtk_check_button_new_with_mnemonic("File name");
   gtk_widget_show(check_box);
-  gtk_toggle_button_set_active(check_box, TRUE);
+  gtk_toggle_button_set_active(check_box, sheetvals.file_name);
   gtk_box_pack_start (GTK_BOX (hbox), check_box, FALSE, FALSE, 0);
   g_signal_connect (check_box, "toggled",
                     G_CALLBACK (gimp_toggle_button_update),
@@ -740,7 +737,7 @@ contact_sheet_dialog (gint32 image_ID)
 
   check_box = gtk_check_button_new_with_mnemonic("aperture");
   gtk_widget_show(check_box);
-  gtk_toggle_button_set_active(check_box, TRUE);
+  gtk_toggle_button_set_active(check_box, sheetvals.aperture);
   gtk_box_pack_start (GTK_BOX (hbox), check_box, FALSE, FALSE, 0);
   g_signal_connect (check_box, "toggled",
                     G_CALLBACK (gimp_toggle_button_update),
@@ -748,7 +745,7 @@ contact_sheet_dialog (gint32 image_ID)
 
   check_box = gtk_check_button_new_with_mnemonic("Focal Length");
   gtk_widget_show(check_box);
-  gtk_toggle_button_set_active(check_box, TRUE);
+  gtk_toggle_button_set_active(check_box, sheetvals.focal_length);
   gtk_box_pack_start (GTK_BOX (hbox), check_box, FALSE, FALSE, 0);
   g_signal_connect (check_box, "toggled",
                     G_CALLBACK (gimp_toggle_button_update),
@@ -756,7 +753,7 @@ contact_sheet_dialog (gint32 image_ID)
 
   check_box = gtk_check_button_new_with_mnemonic("ISO");
   gtk_widget_show(check_box);
-  gtk_toggle_button_set_active(check_box, TRUE);
+  gtk_toggle_button_set_active(check_box, sheetvals.ISO);
   gtk_box_pack_start (GTK_BOX (hbox), check_box, FALSE, FALSE, 0);
   g_signal_connect (check_box, "toggled",
                     G_CALLBACK (gimp_toggle_button_update),
@@ -764,11 +761,15 @@ contact_sheet_dialog (gint32 image_ID)
 
   check_box = gtk_check_button_new_with_mnemonic("Exposure");
   gtk_widget_show(check_box);
-  gtk_toggle_button_set_active(check_box, TRUE);
+  gtk_toggle_button_set_active(check_box, sheetvals.exposure);
   gtk_box_pack_start (GTK_BOX (hbox), check_box, FALSE, FALSE, 0);
   g_signal_connect (check_box, "toggled",
                     G_CALLBACK (gimp_toggle_button_update),
                     &sheetvals.exposure);
+
+  hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
+  gtk_box_pack_start(GTK_BOX(vbox), hbox, FALSE, FALSE, 0);
+  gtk_widget_show(hbox);
 
   /*  Caption text size entry  */
   caption_text_size = gimp_size_entry_new (1,                            /*  number_of_fields  */
@@ -783,13 +784,34 @@ contact_sheet_dialog (gint32 image_ID)
   gtk_box_pack_start (GTK_BOX (hbox), caption_text_size, FALSE, FALSE, 0);
   gtk_widget_show (caption_text_size);
 
-  gimp_size_entry_set_unit (GIMP_SIZE_ENTRY (caption_text_size), GIMP_UNIT_POINT);
+  gimp_size_entry_set_unit (GIMP_SIZE_ENTRY (caption_text_size), sheetvals.cs_type);
 
-  gimp_size_entry_set_resolution (GIMP_SIZE_ENTRY (caption_text_size), 0, SHEET_RES, TRUE);
+  gimp_size_entry_set_resolution (GIMP_SIZE_ENTRY (caption_text_size), 0, sheetvals.sheet_res, TRUE);
 
-  gimp_size_entry_set_value (GIMP_SIZE_ENTRY (caption_text_size), 0, 6);
+  gimp_size_entry_set_value (GIMP_SIZE_ENTRY (caption_text_size), 0, sheetvals.caption_size);
 
   label = gimp_size_entry_attach_label (GIMP_SIZE_ENTRY (caption_text_size), "Text size :",
+        1, 0, 0.0);
+
+  /*  Caption text size entry  */
+  sheet_res = gimp_size_entry_new (1,                            /*  number_of_fields  */
+                               unit,                         /*  unit              */
+                               "%a",                         /*  unit_format       */
+                               TRUE,                         /*  menu_show_pixels  */
+                               FALSE,                         /*  menu_show_percent */
+                               FALSE,                        /*  show_refval       */
+                               8,            /*  spinbutton_usize  */
+                               GIMP_SIZE_ENTRY_UPDATE_SIZE); /*  update_policy     */
+
+  gtk_box_pack_start (GTK_BOX (hbox), sheet_res, FALSE, FALSE, 0);
+  gtk_widget_show (sheet_res);
+
+  gimp_size_entry_show_unit_menu (GIMP_SIZE_ENTRY (sheet_res), FALSE);
+  gimp_size_entry_set_unit (GIMP_SIZE_ENTRY (sheet_res), GIMP_UNIT_PIXEL);
+
+  gimp_size_entry_set_value (GIMP_SIZE_ENTRY (sheet_res), 0, sheetvals.sheet_res);
+
+  label = gimp_size_entry_attach_label (GIMP_SIZE_ENTRY (sheet_res), "Sheet Resolution :",
         1, 0, 0.0);
 
 
@@ -802,7 +824,7 @@ contact_sheet_dialog (gint32 image_ID)
   gtk_widget_show(check_box);
 
   gtk_box_pack_start (GTK_BOX (hbox), check_box, FALSE, FALSE, 0);
-  gtk_toggle_button_set_active(check_box, TRUE);
+  gtk_toggle_button_set_active(check_box, sheetvals.flatten);
   g_signal_connect (check_box, "toggled",
                     G_CALLBACK (gimp_toggle_button_update),
                     &sheetvals.flatten);
@@ -814,7 +836,7 @@ contact_sheet_dialog (gint32 image_ID)
 
   label = gtk_label_new("Prefix: ");
   prefix = gtk_entry_new();
-  gtk_entry_set_text(prefix, "Untitled");
+  gtk_entry_set_text(prefix, sheetvals.file_prefix);
 
   gtk_box_pack_start (GTK_BOX (hbox), label, FALSE, FALSE, 0);
   gtk_box_pack_start (GTK_BOX (hbox), prefix, FALSE, FALSE, 0);
@@ -825,26 +847,38 @@ contact_sheet_dialog (gint32 image_ID)
   run = (gimp_dialog_run (GIMP_DIALOG (dlg)) == GTK_RESPONSE_OK);
   if (run)
     {
-      strcpy(sheetvals.file_dir_tree, gtk_file_chooser_get_current_folder(GTK_FILE_CHOOSER(file_entry)));
+      
+      if (gtk_file_chooser_get_current_folder(GTK_FILE_CHOOSER(file_entry)) != NULL)
+      {
+        strcpy(sheetvals.file_dir_tree, gtk_file_chooser_get_current_folder(GTK_FILE_CHOOSER(file_entry)));
+      }
 
+      sheetvals.sheet_res = 
+        gimp_size_entry_get_refval (GIMP_SIZE_ENTRY (sheet_res), 0);
 
+      sheetvals.w_h_type = 
+        gimp_size_entry_get_unit(GIMP_SIZE_ENTRY (width)); 
       sheetvals.sheet_width =
-        gimp_size_entry_get_refval (GIMP_SIZE_ENTRY (width), 0);
+        gimp_size_entry_get_value (GIMP_SIZE_ENTRY (width), 0);
       sheetvals.sheet_height =
-        gimp_size_entry_get_refval (GIMP_SIZE_ENTRY (width), 1);
+        gimp_size_entry_get_value (GIMP_SIZE_ENTRY (width), 1);
 
+      sheetvals.vg_hg_type = 
+        gimp_size_entry_get_unit(GIMP_SIZE_ENTRY (gap)); 
       sheetvals.gap_vert =
-        gimp_size_entry_get_refval (GIMP_SIZE_ENTRY (gap), 0);
+        gimp_size_entry_get_value (GIMP_SIZE_ENTRY (gap), 0);
       sheetvals.gap_horiz =
-        gimp_size_entry_get_refval (GIMP_SIZE_ENTRY (gap), 1);
+        gimp_size_entry_get_value (GIMP_SIZE_ENTRY (gap), 1);
 
       sheetvals.column =
         gimp_size_entry_get_refval (GIMP_SIZE_ENTRY (row_column), 0);
       sheetvals.row =
         gimp_size_entry_get_refval (GIMP_SIZE_ENTRY (row_column), 1);
 
-      sheetvals.caption_size =
-        gimp_size_entry_get_refval (GIMP_SIZE_ENTRY (caption_text_size), 0);
+      sheetvals.cs_type = 
+        gimp_size_entry_get_unit(GIMP_SIZE_ENTRY (caption_text_size)); 
+      sheetvals.caption_size = 
+        gimp_size_entry_get_value (GIMP_SIZE_ENTRY (caption_text_size), 0);
 
       strcpy(sheetvals.file_prefix, gtk_entry_get_text(prefix));
     }

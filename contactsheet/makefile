@@ -4,10 +4,16 @@ CFLAGS = -I/usr/include/gimp-2.0 -I/usr/include/gdk-pixbuf-2.0 -I/usr/include/gl
 LIBS = -lgegl-0.4 -lgegl-npd-0.4 -lgimpui-2.0 -lgimpwidgets-2.0 -lgimpmodule-2.0 -lgimp-2.0 -lgimpmath-2.0 -lgimpconfig-2.0 -lgimpcolor-2.0 -lgimpbase-2.0 -lgmodule-2.0 -lglib-2.0 -ljson-glib-1.0 -lbabl-0.1 -lgtk-x11-2.0 -lgdk-x11-2.0 -lpangocairo-1.0 -latk-1.0 -lcairo -lgdk_pixbuf-2.0 -lgio-2.0 -lpangoft2-1.0 -lpango-1.0 -lgobject-2.0 -lglib-2.0 -lharfbuzz -lfontconfig -lfreetype -pthread -lgexiv2
 
 # Directory path variable
-INSTALL_DIR = /home/soldham/.config/GIMP/2.10/plug-ins/contactsheet
+INSTALL_DIR = /home/samio/.config/GIMP/2.10/plug-ins/contactsheet
 
 # Output binary variable
 OUTPUT_BINARY = $(INSTALL_DIR)/contactsheet
+
+# Check for the -w flag
+ifdef WINDOWS
+    CC = mingw32-gcc
+    CFLAGS += -DWINDOWS
+endif
 
 all: contactsheet
 
