@@ -19,10 +19,8 @@
 
 /*
  * This plug-in generates a contact sheet from a selected directory
+ * set forground and background using the color picker setting in the menu
  */
-// ADD ABITLIY TO CHANGE DPI 
-// ADD ABILITY TO ADD EDGES
-//fix gegl leaks
 
 #include <libgimp/gimp.h>
 #include <libgimp/gimpui.h>
@@ -251,7 +249,7 @@ run (const gchar      *name,
       cell_height = (sheet_height - (gap_horiz* (tmp_row + 1))) / tmp_row;
 
       // add to the background.
-      gint32            image_ID_src, image_ID_dst, layer_ID_src, layer_ID_dst;
+      gint32          image_ID_dst, layer_ID_src, layer_ID_dst;
       image_ID_dst = create_new_image (sheet_number,
                                    (guint) sheet_width, (guint) sheet_height,
                                    &layer_ID_dst);
