@@ -24,6 +24,7 @@ Restart GIMP and the plugin will show up under File->Create.
 ## Todo
 Develop for next version of GIMP\
 Make installation easier.
+Make this todo thing better.
 
 ## License
 This project is licensed under the MIT License - see the LICENSE file for details.
