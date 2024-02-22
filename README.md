@@ -22,8 +22,8 @@ This will change to be more user freindly.
 Restart GIMP and the plugin will show up under File->Create.
 
 ## Todo
-Develop for next version of GIMP\
-Make installation easier.
+Develop for next version of GIMP.\
+Make installation easier.\
 Make this todo thing better.
 
 ## License
