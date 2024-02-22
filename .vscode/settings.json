@@ -5,6 +5,18 @@
     "hash_map": "c",
     "gtk.h": "c",
     "gexiv2.h": "c",
-    "gimpui.h": "c"
+    "gimpui.h": "c",
+    "string": "c",
+    "format": "c",
+    "charconv": "c",
+    "chrono": "c",
+    "optional": "c",
+    "ratio": "c",
+    "system_error": "c",
+    "array": "c",
+    "functional": "c",
+    "tuple": "c",
+    "type_traits": "c",
+    "utility": "c"
   }
 }
